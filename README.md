@@ -76,8 +76,8 @@ Three of the tests cover this: a properly signed image boots, an image changed a
 rejected, and an image signed with a different key is rejected. The third one is the case a plain
 checksum would have let through.
 
-`tools/dev.key` is a throwaway key for the simulation. Generate your own before using this for
-anything real, and don't commit it.
+`tools/dev.key` and `tools/attacker.key` are throwaway keys, committed so the tests run out of the
+box. For anything real, generate your own key, keep it out of the repository, and rebuild.
 
 Worth knowing about the scheme: HMAC uses a shared secret, and here that secret sits in ROM. It
 protects against someone swapping the application without access to the ROM, but not against
