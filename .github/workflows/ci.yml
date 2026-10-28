@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator yosys \
+            gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
+
+      - name: Lint (Verilator)
+        run: make lint
+
+      - name: Synthesize the core (Yosys)
+        run: make synth
+
+      - name: Simulate (all firmware images)
+        run: make sim
+
+      - name: Keep the built images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-images
+          path: build/*.hex
+          if-no-files-found: ignore
