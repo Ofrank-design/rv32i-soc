@@ -1,0 +1,7 @@
+build/
+*.vcd
+*.o
+*.elf
+*.bin
+*.log
+__pycache__/
