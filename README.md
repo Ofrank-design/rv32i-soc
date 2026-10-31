@@ -10,7 +10,7 @@ register layouts I made up for this project, so expect to adjust them for an act
 
 ## What's in it
 
-**The core** is single-cycle: one instruction per clock, no pipeline. It implements all of RV32I
+**The core** is single-cycle: one instruction per clock, no pipeline, except loads, which take two clocks because FPGA block RAM returns data a cycle after the address. It implements all of RV32I
 (including byte and halfword loads/stores), treats FENCE and WFI as no-ops, and has enough
 machine-mode support for traps and a timer interrupt:
 
@@ -46,20 +46,26 @@ An instruction that traps changes nothing: no register write, no store, no CSR u
 
 ## Building and running
 
-You need `iverilog`, `verilator`, `yosys`, a RISC-V binutils + gcc (`riscv64-unknown-elf-`), and Python 3.
+You need `iverilog`, `verilator`, `yosys`, `nextpnr-ecp5`, `fpga-trellis` (for `ecppack`), a RISC-V binutils + gcc (`riscv64-unknown-elf-`), and Python 3. Flashing also needs `openFPGALoader`.
 
 ```
-make sim      # build every firmware image and run all eight simulations
-make lint     # Verilator lint
-make synth    # generic Yosys synthesis of the core
-make check    # all of the above
-make disasm   # disassemble the firmware
+make sim          # build every firmware image and run all eight simulations
+make lint         # Verilator lint
+make synth        # generic Yosys synthesis of the core
+make check        # all of the above
+make fpga         # ULX3S bitstream (build/fpga.bit), fails if timing isn't met
+make boardsim     # board-level test of fpga_top on the RTL
+make gatesim      # simulate the synthesized netlist (see "Verification")
+make flash        # load the bitstream onto a connected ULX3S
+make release      # bitstream signed with your own key (see "Deploying")
+make disasm       # disassemble the firmware
 ```
 
 On Debian/Ubuntu:
 
 ```
-sudo apt-get install iverilog verilator yosys gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
+sudo apt-get install iverilog verilator yosys nextpnr-ecp5 fpga-trellis \
+    gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
 ```
 
 `make sim` runs: `blink`, `matrix`, `cputest`, `traptest`, `matrix_irq`, `boot_ok`, `boot_bad`,
@@ -97,29 +103,86 @@ make APP_DEFS="--defsym SAMPLE_CYCLES=50000"
 
 Tune it to your switch.
 
-## Where things stand
+## Deploying to a ULX3S
 
-- All eight simulations pass.
-- Verilator lint is clean.
-- Yosys synthesizes the core with no warnings from its checks and no inferred latches
-  (about 8,100 generic cells, mostly the register file). The full SoC isn't synthesized because
-  the simulation memories load from a file.
-- Not done: place-and-route, timing, a run on a real board.
+The reference board is the ULX3S with the ECP5-25F (25 MHz oscillator). The pin file in
+`fpga/ulx3s.lpf` is the relevant part of the board maker's official constraints.
+
+| Board | Function |
+|---|---|
+| `FIRE1` button | the application's button (active high) |
+| `FIRE2` button | hold to reset the CPU |
+| `LED0` | application LED |
+| `LED1` | fault LED: the bootloader rejected the image |
+| `LED2` | on while the CPU is running |
+| `GP0`-`GP7` | LED matrix rows (outputs) |
+| `GP8`-`GP15` | LED matrix columns (outputs) |
+
+The matrix pins are 3.3 V logic straight from the FPGA. Put current-limiting resistors or a driver
+stage between them and any real matrix, and check its polarity against the firmware.
+
+**Try it with the demo key** (this is signed with the throwaway key in `tools/`):
+
+```
+make fpga
+make flash          # openFPGALoader -b ulx3s build/fpga.bit  (RAM only; gone at power-off)
+```
+
+Press FIRE1: LED0 toggles once per press. To store it in the board's flash instead, run
+`openFPGALoader -b ulx3s -f build/fpga.bit`.
+
+**Make your own release**, signed with a key nobody else has:
+
+```
+make newkey                          # writes keys/release.key (git-ignored; back it up)
+make release KEY=keys/release.key    # bitstream in build/release/fpga.bit
+```
+
+The release build refuses the demo key. It bakes the key into the bootloader, signs the
+application with it, and sets the debounce and matrix timing for a 25 MHz clock (1 ms sample,
+8 ms debounce; 1 kHz matrix refresh). `APP=matrix_irq` builds the matrix demo as the application
+instead of the button/LED one.
+
+Using a different board means a new top level (clock, reset, pins) and constraint file, and
+changing `FPGA_ARGS` in the Makefile.
+
+Resource use on the ECP5-25F: about 4,500 of 24,000 LUTs (18%), 470 flip-flops, 8 of 56 block RAMs.
+Timing closes at about 32 MHz against the 25 MHz clock.
+
+## Verification
+
+- Eight simulations of the SoC (`make sim`) pass: `blink`, `matrix`, `cputest`, `traptest`,
+  `matrix_irq`, `boot_ok`, `boot_bad`, `boot_forged`.
+- A board-level test (`tb/tb_fpga.sv`) drives `fpga_top` the way the board does: power-on reset,
+  HMAC check of the signed image, then button presses toggling the LED. It passes on the RTL.
+- `make gatesim` runs the same test on the synthesized ECP5 netlist. Yosys has no simulation
+  model for ECP5 block RAM, so for that run the memories are turned into plain logic and
+  shrunk, and the polling `blink` image is used instead of the signed one. It checks the CPU,
+  bus, peripherals, reset and button path as synthesized. It does not check the block RAM
+  mapping, which relies on Yosys and nextpnr. `make gatesim-boot` runs the signed image through
+  the same netlist but takes much longer.
+- Verilator lint is clean, and `make fpga` (nextpnr) reports timing met.
+
+**Not done:** I haven't run it on a physical board, so the pin assignments and the matrix
+behavior are untested on real hardware. The first thing to try on a board is the demo flow above.
 
 ## Limits
 
 - Machine mode only. No compressed (C) or multiply/divide (M) extensions, no vectored
   interrupts, 32-bit counters, and WFI doesn't actually sleep.
 - No anti-rollback for the bootloader, see above.
+- Secure boot only checks the application. The bootloader itself lives in the bitstream, so anyone
+  who can reprogram the FPGA can replace it.
 - The register layouts are this project's own, not any vendor's.
 
 ## Layout
 
 ```
-rtl/    SystemVerilog sources
+rtl/    SystemVerilog sources (fpga_top.sv is the board top level)
 fw/     firmware and linker scripts
+fpga/   board pin constraints
 tools/  image signing and helper scripts
-tb/     testbench
+tb/     testbenches
 ```
 
 ## License

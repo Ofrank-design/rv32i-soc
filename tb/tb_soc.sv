@@ -71,9 +71,9 @@ module tb_soc;
                 check(cap[i] == exp[i], "matrix row pattern matches frame");
         end else if (test == "traptest") begin
             cycles(20000);
-            if (dut.u_ram.mem[0] !== 32'h600D600D)
-                $display("  mailbox = %h (0xBAD000NN -> failing test id NN)", dut.u_ram.mem[0]);
-            check(dut.u_ram.mem[0] === 32'h600D600D, "traptest mailbox == 600D600D");
+            if (dut.u_ram.word0 !== 32'h600D600D)
+                $display("  mailbox = %h (0xBAD000NN -> failing test id NN)", dut.u_ram.word0);
+            check(dut.u_ram.word0 === 32'h600D600D, "traptest mailbox == 600D600D");
         end else if (test == "matrix_irq") begin
             cycles(8000);
             for (i = 0; i < 8; i = i + 1)
@@ -90,9 +90,9 @@ module tb_soc;
                 check(cap[i] == exp[i], "second press restores display");
         end else if (test == "cputest") begin
             cycles(6000);
-            if (dut.u_ram.mem[0] !== 32'h600D600D)
-                $display("  mailbox = %h (0xBAD000NN -> failing test id NN)", dut.u_ram.mem[0]);
-            check(dut.u_ram.mem[0] === 32'h600D600D, "cputest mailbox == 600D600D");
+            if (dut.u_ram.word0 !== 32'h600D600D)
+                $display("  mailbox = %h (0xBAD000NN -> failing test id NN)", dut.u_ram.word0);
+            check(dut.u_ram.word0 === 32'h600D600D, "cputest mailbox == 600D600D");
         end
 
         if (errors == 0) $display("PASS: %0s", test);

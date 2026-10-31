@@ -5,7 +5,7 @@
 //   0x4000_1000  LED matrix   ROW/COL
 //   0x4000_2000  Timer  MTIME (+0), MTIMECMP (+4); interrupt while signed(mtime - mtimecmp) >= 0
 // The peripheral layouts are made up for this project, not copied from a real chip.
-module soc_top #(parameter ROM_WORDS = 2048, RAM_WORDS = 1024) (
+module soc_top #(parameter ROM_WORDS = 2048, RAM_WORDS = 1024, parameter ROM_INIT = "") (
     input  logic        clk,
     input  logic        rst_n,
     input  logic [31:0] gpio_in,
@@ -23,7 +23,7 @@ module soc_top #(parameter ROM_WORDS = 2048, RAM_WORDS = 1024) (
                     .dmem_addr(d_addr), .dmem_wdata(d_wdata), .dmem_wstrb(d_wstrb),
                     .dmem_re(d_re), .dmem_rdata(d_rdata));
 
-    rom_mem #(ROM_WORDS) u_rom (.i_addr(pc), .i_data(instr), .d_addr(d_addr), .d_data(rom_rd));
+    rom_mem #(ROM_WORDS, ROM_INIT) u_rom (.clk, .i_addr(pc), .i_data(instr), .d_addr(d_addr), .d_data(rom_rd));
 
     wire sel_rom  = (d_addr[31:28] == 4'h0);
     wire sel_ram  = (d_addr[31:28] == 4'h1);

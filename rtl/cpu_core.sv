@@ -1,4 +1,9 @@
-// Single-cycle RV32I core: one instruction per clock, no pipeline.
+// Single-cycle RV32I core: one instruction per clock, no pipeline, except that loads take two.
+//
+// Block RAM returns data a clock after the address, so instruction memory is addressed with the
+// *next* PC (imem_addr = pc_next) and its output register holds the current instruction. A load
+// takes an extra cycle: cycle one presents the address and holds the PC, cycle two (load_wait)
+// uses the data that came back and finishes the instruction.
 //
 // Besides the base ISA it has machine-mode CSRs, a handful of synchronous exceptions
 // (illegal instruction, EBREAK, ECALL, misaligned jump/load/store) and a timer interrupt.
@@ -19,7 +24,8 @@ module cpu_core #(parameter [31:0] RESET_PC = 32'h0) (
 `include "rv_defs.svh"
 
     logic [31:0] pc, pc_next, pc_plus4;
-    assign imem_addr = pc;
+    logic        load_wait, stall;
+    assign imem_addr = rst_n ? pc_next : RESET_PC;   // fetch address for the NEXT instruction
     assign pc_plus4  = pc + 32'd4;
 
     // ---- decode ----
@@ -46,7 +52,8 @@ module cpu_core #(parameter [31:0] RESET_PC = 32'h0) (
     // ---- register file ----
     logic [31:0] rs1_data, rs2_data, wb_data, csr_rdata;
     logic        trap, reg_we;
-    assign reg_we = (reg_write || is_csr) && !trap;
+    assign stall  = mem_read && !trap && !load_wait;   // first cycle of a load: address out, no commit
+    assign reg_we = (reg_write || is_csr) && !trap && !stall;
     regfile u_rf (.clk, .we(reg_we), .ra1(rs1), .ra2(rs2), .wa(rd), .wd(wb_data),
                   .rd1(rs1_data), .rd2(rs2_data));
 
@@ -139,12 +146,13 @@ module cpu_core #(parameter [31:0] RESET_PC = 32'h0) (
     csr_file u_csr (.clk, .rst_n, .addr(imem_data[31:20]), .wdata(csr_src), .op(funct3[1:0]),
                     .wen(csr_wen), .rdata(csr_rdata),
                     .trap_enter(trap), .trap_cause, .trap_pc(pc), .trap_val,
-                    .mret_en(is_mret && !trap), .retire(!trap), .timer_irq,
+                    .mret_en(is_mret && !trap), .retire(!trap && !stall), .timer_irq,
                     .mtvec_o(mtvec), .mepc_o(mepc), .irq_pending);
 
     // ---- next PC ----
     always_comb begin
         if (trap)                   pc_next = mtvec;
+        else if (stall)             pc_next = pc;
         else if (is_mret)           pc_next = mepc;
         else if (jal)               pc_next = jal_tgt;
         else if (jalr)              pc_next = jalr_tgt;
@@ -152,8 +160,8 @@ module cpu_core #(parameter [31:0] RESET_PC = 32'h0) (
         else                        pc_next = pc_plus4;
     end
     always_ff @(posedge clk or negedge rst_n)
-        if (!rst_n) pc <= RESET_PC;
-        else        pc <= pc_next;
+        if (!rst_n) begin pc <= RESET_PC; load_wait <= 1'b0; end
+        else        begin pc <= pc_next;  load_wait <= stall;  end
 
     // ---- write-back ----
     always_comb begin

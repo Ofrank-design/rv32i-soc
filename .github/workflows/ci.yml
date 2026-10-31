@@ -14,7 +14,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y iverilog verilator yosys \
+          sudo apt-get install -y iverilog verilator yosys nextpnr-ecp5 fpga-trellis \
             gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
 
       - name: Lint (Verilator)
@@ -26,10 +26,18 @@ jobs:
       - name: Simulate (all firmware images)
         run: make sim
 
+      - name: Build the ULX3S bitstream (fails if timing is missed)
+        run: make fpga
+
+      - name: Gate-level simulation of the synthesized netlist
+        run: make gatesim
+
       - name: Keep the built images
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-images
-          path: build/*.hex
+          name: build-outputs
+          path: |
+            build/*.hex
+            build/fpga.bit
           if-no-files-found: ignore
